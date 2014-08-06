@@ -238,6 +238,22 @@ void midLevelSelect( vector<feature>& all_feats, vector<feature>& mid_level_feat
 {
     /* mid-level: the sum of KNN-dist local in the 5 level ( out of 10 )
      */
+    
+    int numOfFeats = all_feats.size();
+    double* sum = new double[ numOfFeats ];
+    double* dist = new double[ numOfFeats ];
+
+    for( int i = 0; i < numOfFeats; i++ )
+    {
+        sum[i] = 0.0;
+        for( int j = 0; j < numOfFeats; j++ )
+            dist[j] = getEuclidDistSquare( all_feats[i], all_feats[j] );
+        sort( dist, dist + numOfFeats );
+        for( int i = 0; j < (int)(0.3*numOfFeats); j++ )
+            sum[i] += dist[j];
+    }
+    
+    /*
     int numOfFeats = all_feats.size();
     Mat allDist( numOfFeats, numOfFeats, CV_64FC1 );
     double* dist = (double*)allDist.data;
@@ -250,19 +266,20 @@ void midLevelSelect( vector<feature>& all_feats, vector<feature>& mid_level_feat
     Mat reslt = allDist * Ones;
     // calculate the sum of KNN-dist
 
-    double* tmp = (double*)(reslt).data;
+    double* sum = (double*)(reslt).data;
+    */
     double max = -1.0;
     double min = 99999.9;
     for( int i = 0; i < numOfFeats; i++ )
     {
-        if( tmp[i] > max )
-            max = tmp[i];
+        if( sum[i] > max )
+            max = sum[i];
         else if( tmp[i] < min )
-            min = tmp[i];
+            min = sum[i];
     }
     for (int i=0;i<numOfFeats;i++)
     {
-        all_feats[i].sAUC=(tmp[i]-min)*10.0/(max-min);
+        all_feats[i].sAUC=(sum[i]-min)*10.0/(max-min);
     }
     // file << max << " " << min << endl;
 
@@ -271,7 +288,7 @@ void midLevelSelect( vector<feature>& all_feats, vector<feature>& mid_level_feat
     double lower = min + level*step, upper = lower + step+step;//+step*2
     int cnt = 0;
     for( int j = 0; j < numOfFeats; j++ )
-        if( tmp[j] >= lower && tmp[j] <= upper )
+        if( sum[j] >= lower && sum[j] <= upper )
         {
             // file << j << endl;
             mid_level_feats.push_back( all_feats[j] );
