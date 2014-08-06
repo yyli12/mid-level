@@ -274,7 +274,7 @@ void midLevelSelect( vector<feature>& all_feats, vector<feature>& mid_level_feat
     {
         if( sum[i] > max )
             max = sum[i];
-        else if( tmp[i] < min )
+        else if( sum[i] < min )
             min = sum[i];
     }
     for (int i=0;i<numOfFeats;i++)
