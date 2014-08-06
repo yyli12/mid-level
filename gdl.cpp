@@ -203,10 +203,11 @@ void hierachy( vector<feature>& allFeats, Mat& allWeight, vector<cluster*>& allC
         {
             clst = buffer[a].back();
             buffer[a].pop_back();
-            if( clst->count < 15 )
+            if( clst->count < 10 )
                 continue; // abandon cluster with few features
-            else if( clst->count < 30 )
+            /* else if( clst->count < 30 )
                 result.push_back( clst ); // do not split cluster with 15~29 features
+            */
             else
             {
                 // split the cluster in to 4 smaller cluster
@@ -224,10 +225,10 @@ void hierachy( vector<feature>& allFeats, Mat& allWeight, vector<cluster*>& allC
         }
     }
     for( int i = 0; i < buffer[0].size(); i++ )
-        if( buffer[0][i]->count >= 15 )
+        if( buffer[0][i]->count >= 10 && buffer[0][i]->count <= 300 )
             result.push_back( buffer[0][i] );
     for( int i = 0; i < buffer[1].size(); i++ )
-        if( buffer[1][i]->count >= 15 )
+        if( buffer[1][i]->count >= 10 && buffer[1][i]->count <= 300 )
             result.push_back( buffer[1][i] );
 
 }
