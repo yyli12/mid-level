@@ -14,61 +14,13 @@ using namespace cv;
 // 'feature' is a class, contain image info. and image features
 ofstream file("debug.txt");
 
-class clusterNode
-{
-public:
-    feature* feat;
-    clusterNode* next;
-    clusterNode() { feat = NULL; next = NULL; }
-    clusterNode( feature* f ) { feat = f; next = NULL; }
-};
-
-class cluster
-{
-public:
-    int count;
-    clusterNode* head;
-    cluster() { count = 0; head = NULL; }
-    cluster( feature* f )
-    {
-        count = 1;
-        head = new clusterNode( f );
-        head->next = NULL;
-    }
-    ~cluster()
-    {
-        cout << "count: " << count << endl;
-        if( head == NULL )
-            return;
-        else
-        {
-            clusterNode* ptr = head;
-            clusterNode* del;
-            while( ptr != NULL )
-            {
-                del = ptr;
-                ptr = ptr->next;
-                delete del;
-            }
-            head = NULL;
-        }
-    }
-
-    void insert( clusterNode* node )
-    {
-        count++;
-        node->next = head;
-        head = node;
-    }
-};
-
 class affinityNode
 {
 public:
-    cluster* a;
-    cluster* b;
+    vector<feature>* a;
+    vector<feature>* b;
     double affi;
-    affinityNode( cluster* aa , cluster* bb, double af )
+    affinityNode( vector<feature>* aa , vector<feature>* bb, double af )
     {
         a = aa;
         b = bb;
@@ -119,12 +71,14 @@ void clustering( vector<feature>& feats, vector< vector<sortAssistant> >& KNN_ar
     int numOfFeats;
 
     Mat allWeight;
-    vector<cluster*> allCluster;
-    vector<cluster*> result;
+    vector< vector<feature> > allCluster;
+    vector< vector<feature> > result;
     vector<feature> mid_level_feats;
 
 
     midLevelSelect( feats, mid_level_feats, 5 );
+    cout << "selection done" << endl;
+
     /* select those feats which are mid-level
      * mid-level: the sum of KNN-dist local in the 5 level ( out of 10 )
      *
@@ -157,6 +111,7 @@ void clustering( vector<feature>& feats, vector< vector<sortAssistant> >& KNN_ar
     } */
 
     calcWeight( weight, numOfFeats, 30, &sigmaSquare );
+    cout << "calculation done" << endl;
     /* w_ij is final weight of edge(i,j)
      * w_ij = exp( - dist(i,j)^2 / sigma^2 ), if j in KNN of i;
      *      = 0, otherwise.
@@ -164,24 +119,12 @@ void clustering( vector<feature>& feats, vector< vector<sortAssistant> >& KNN_ar
 
     // print( allWeight );
 
-    hierachy( mid_level_feats, allWeight, allCluster, result );
+    hierachy( mid_level_feats, allWeight, allCluster, cluster_result );
+
     // do hierachy-cluster, rough -> fine
 
-    for( int i = 0; i < result.size(); i++ )
-    {
-        // output
-        clusterNode* ptr = result[i]->head;
-        vector<feature> clst;
-        while( ptr != NULL )
-        {
-            clst.push_back( *(ptr->feat) );
-            ptr = ptr->next;
-        }
-        cluster_result.push_back( clst );
-        delete result[i];
-        result[i] = NULL;
-    }
 
+    cout << "hierachy done" << endl;
 
 
     /*initialCluster( mid_level_feats, allCluster );
@@ -196,20 +139,23 @@ void clustering( vector<feature>& feats, vector< vector<sortAssistant> >& KNN_ar
 
 }
 
-void hierachy( vector<feature>& allFeats, Mat& allWeight, vector<cluster*>& allCluster, vector<cluster*>& result )
+void hierachy( vector<feature>& allFeats, Mat& allWeight, vector< vector<feature> >& allCluster, vector< vector<feature> >& result )
 {
-    vector<cluster*> buffer[2];
+    vector< vector<feature> > buffer[2];
     int a, b;
-    cluster* clst;
+    vector<feature>  clst;
     initialCluster( allFeats, allCluster );
+    cout << "initialization done" << endl;
     // aggregate similar features as initial cluster
 
     doCluster( allCluster, 4, allWeight );
+
     for( int i = 0; i < allCluster.size(); i++ )
         buffer[0].push_back(allCluster[i]);
 
     for( int i = 0; i < 10; i++ )
     {
+        cout << "level " << i << " done" << endl;
         // 10-level of cluster
         a = i % 2;
         b = a == 0 ? 1 : 0;
@@ -218,42 +164,36 @@ void hierachy( vector<feature>& allFeats, Mat& allWeight, vector<cluster*>& allC
         {
             clst = buffer[a].back();
             buffer[a].pop_back();
-            if( clst->count < 10 )
-            {
-                delete clst;
+            if( clst.size() < 10 )
                 continue; // abandon cluster with few features
-            }
-            /* else if( clst->count < 30 )
+            /* else if( clst.size() < 30 )
                 result.push_back( clst ); // do not split cluster with 15~29 features
             */
             else
             {
                 // split the cluster in to 4 smaller cluster
-                vector<cluster*> split;
-                clusterNode* ptr = clst->head;
-                while( ptr != NULL )
+                vector< vector<feature> > split;
+
+                for( int i = 0; i < clst.size(); i++ )
                 {
-                    cluster* nc = new cluster();
-                    nc->head = ptr;
-                    nc->count = 1;
-                    ptr = ptr->next;
-                    nc->head->next = NULL;
-                    split.push_back( nc );
+                    vector<feature> newC;
+                    newC.push_back( clst[i] );
+                    split.push_back( newC );
                 }
-                clst->head = NULL;
-                clst->count = 0;
-                delete clst;
+
                 doCluster( split, 4, allWeight );
                 for( int i = 0; i < split.size(); i++ )
-                    buffer[b].push_back( split[i] );
+                    if( split[i].size() >= 10 )
+                        buffer[b].push_back( split[i] );
+
             }
         }
     }
     for( int i = 0; i < buffer[0].size(); i++ )
-        if( buffer[0][i]->count >= 10 && buffer[0][i]->count <= 300 )
+        if( buffer[0][i].size() >= 10 && buffer[0][i].size() <= 300 )
             result.push_back( buffer[0][i] );
     for( int i = 0; i < buffer[1].size(); i++ )
-        if( buffer[1][i]->count >= 10 && buffer[1][i]->count <= 300 )
+        if( buffer[1][i].size() >= 10 && buffer[1][i].size() <= 300 )
             result.push_back( buffer[1][i] );
 
 }
@@ -279,7 +219,7 @@ void midLevelSelect( vector<feature>& all_feats, vector<feature>& mid_level_feat
 #pragma omp parallel for reduction(+:tsum)
         for( int j = 0; j < (int)(0.3*numOfFeats); j++ )
             tsum += dist[j];
-        sum[i]=tsum;
+        sum[i] = tsum;
     }
 
     /*
@@ -332,24 +272,24 @@ void midLevelSelect( vector<feature>& all_feats, vector<feature>& mid_level_feat
 
 
 
-void doCluster( vector<cluster*>& allCluster, int k, Mat& w )
+void doCluster( vector<vector<feature>>& allCluster, int k, Mat& w )
 {
-    // combine all cluster until ( # of cluster == k )
+    // combine all cluster until ( # of cluster <= k )
     priority_queue<affinityNode> Q;
     double affi;
-    cluster* a;
-    cluster* b;
+    vector<feature>* a;
+    vector<feature>* b;
 
     /* initial priority-queue Q with all possible pairs of all clusters
      * key of Q is affinity b/w two cluster
      */
     for( int i = 0; i < allCluster.size(); i++ )
     {
-        a = allCluster[i];
+        a = &allCluster[i];
         for( int j = i+1; j < allCluster.size(); j++ )
         {
-            b = allCluster[j];
-            affi = affinity( a, b, w );
+            b = &allCluster[j];
+            affi = affinity( *a, *b, w );
             affinityNode n( a, b, affi );
             Q.push( n );
         }
@@ -362,47 +302,46 @@ void doCluster( vector<cluster*>& allCluster, int k, Mat& w )
          */
         affinityNode n = Q.top();
         Q.pop();
-        bool founda = find( allCluster.begin(), allCluster.end(), n.a) != allCluster.end();
-        bool foundb = find( allCluster.begin(), allCluster.end(), n.b) != allCluster.end();
-        bool notTooLarge = true; // ( n.a->count < numOfFeats/5 ) && ( n.b->count < numOfFeats/5 );
+        vector<feature>& a = *n.a;
+        vector<feature>& b = *n.b;
+        bool founda = find( allCluster.begin(), allCluster.end(), a ) != allCluster.end();
+        bool foundb = find( allCluster.begin(), allCluster.end(), b ) != allCluster.end();
+        bool notTooLarge = true; // ( n.a.size() < numOfFeats/5 ) && ( n.b.size() < numOfFeats/5 );
         // cout << founda << foundb << endl;
         if( founda && foundb && notTooLarge )
         {
             // cout << n.a->head->feat->index << n.b->head->feat->index << endl;
-            for( vector<cluster*>::iterator it = allCluster.begin(); it != allCluster.end(); )
+            merge( a, b );
+
+            for( vector<vector<feature>>::iterator it = allCluster.begin(); it != allCluster.end(); )
             {
                 // cout << (*it)->head->feat->index << endl;
-                if( *it == n.a || *it == n.b )
+                if( *it == b )
                 {
                     it = allCluster.erase( it );
+                    break;
                     // cout << "erase" << (*it)->head->feat->index << endl;
                 }
                 else
                     it++;
             }
 
-            cluster* c = merge( n.a, n.b );
-
             for( int i = 0; i < allCluster.size(); i++ )
             {
-                cluster* a = allCluster[i];
+                vector<feature>& c = allCluster[i];
+                if( c == a )
+                    continue;
                 double affi = affinity( a, c, w );
-                affinityNode n( a, c, affi );
+                affinityNode n( &a, &c, affi );
                 Q.push( n );
             }           
-
-            allCluster.push_back(c);
         }
-
-
-
-
     }
 
 }
 
 
-void initialCluster( vector<feature>& feats, vector<cluster*>& allCluster )
+void initialCluster( vector<feature>& feats, vector< vector<feature> >& allCluster )
 {
     /* initial cluster with feature-graph
      * use BFS to find weak connected component in the graph,
@@ -432,7 +371,7 @@ void initialCluster( vector<feature>& feats, vector<cluster*>& allCluster )
     {
         if( !visited[i] )
         {
-            cluster* newCluster = new cluster();
+            vector<feature> newCluster;
             BFS( i, newCluster, feats, visited, (double*)m.data );
             allCluster.push_back( newCluster );
         }
@@ -442,7 +381,7 @@ void initialCluster( vector<feature>& feats, vector<cluster*>& allCluster )
     delete [] visited;
 }
 
-void BFS( int start, cluster* c, vector<feature>& feats, bool* visited, double* w )
+void BFS( int start, vector<feature>& c, vector<feature>& feats, bool* visited, double* w )
 {
     int numOfFeats = feats.size();
     queue<int> Q;
@@ -454,7 +393,7 @@ void BFS( int start, cluster* c, vector<feature>& feats, bool* visited, double* 
         Q.pop();
         if( !visited[f] )
         {
-            c->insert( new clusterNode( &feats[f] ) );
+            c.push_back( feats[f] );
             visited[f] = true;
             for( int i = 0; i < numOfFeats; i++ )
             {
@@ -572,61 +511,35 @@ void calcWeight( double* w, int n, int KNN, double* s )
 
 }
 
-int* getCluster( cluster* c )
+int* getCluster( vector<feature>& c )
 {
 
-    int* f = new int[c->count];
-    clusterNode* n = c->head;
-    for( int i = 0; i < c->count; i++ )
+    int* f = new int[c.size()];
+
+    for( int i = 0; i < c.size(); i++ )
     {
-        f[i] = n->feat->index;
-        n = n->next;
+        f[i] = c[i].index;
     }
+
     return f;
 }
 
-cluster* merge( cluster* a, cluster* b )
+void merge( vector<feature>& a, vector<feature>& b )
 {
     // merge two linked list and add up the counter
-    cluster* c = new cluster();
-    c->count = a->count + b->count;
-
-    if( a->count == 0 )
-    {
-        c->head = b->head;
-        b->head = NULL;
-        a->head = NULL;
-        return c;
-    }
-    if( b->count == 0 )
-    {
-        c->head = a->head;
-        b->head = NULL;
-        a->head = NULL;
-        return c;
-    }
-
-    clusterNode* tail = a->head;
-    while( tail->next != NULL )
-            tail = tail->next;
-    tail->next = b->head;
-    c->head = a->head;
-
-    a->head = NULL;
-    b->head = NULL;
-
-    return c;
+    for( int i = 0; i < b.size(); i++ )
+        a.push_back( b[i] );
 }
 
-double affinity( cluster* a, cluster* b, Mat& w )
+double affinity( vector<feature>& a, vector<feature>& b, Mat& w )
 {
     // matrix-operation to get affinity b/w two clusters
     Mat Wab;
     Mat Wba;
     int* lista = getCluster( a );
     int* listb = getCluster( b );
-    int Na = a->count;
-    int Nb = b->count;
+    int Na = a.size();
+    int Nb = b.size();
     Wab.create( Na, Nb, CV_64FC1 );
     Wba.create( Nb, Na, CV_64FC1 );
 
@@ -703,10 +616,10 @@ void print( Mat& mt )
     printMbyN( (double*)mt.data, m, n );
 }
 
-void print( vector<cluster*>& allCluster )
+void print( vector<vector<feature>&>& allCluster )
 {
     /*
-    for( vector<cluster*>::iterator it = allCluster.begin(); it != allCluster.end(); it++ )
+    for( vector<vector<feature>&>::iterator it = allCluster.begin(); it != allCluster.end(); it++ )
     {
         for( clusterNode* n = (*it)->head; n != NULL; n = n->next )
             n->feat->print();
