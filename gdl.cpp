@@ -35,6 +35,24 @@ public:
         head = new clusterNode( f );
         head->next = NULL;
     }
+    ~cluster()
+    {
+        cout << "count: " << count << endl;
+        if( head == NULL )
+            return;
+        else
+        {
+            clusterNode* ptr = head;
+            clusterNode* del;
+            while( ptr != NULL )
+            {
+                del = ptr;
+                ptr = ptr->next;
+                delete del;
+            }
+            head = NULL;
+        }
+    }
 
     void insert( clusterNode* node )
     {
@@ -160,14 +178,11 @@ void clustering( vector<feature>& feats, vector< vector<sortAssistant> >& KNN_ar
             ptr = ptr->next;
         }
         cluster_result.push_back( clst );
+        delete result[i];
+        result[i] = NULL;
     }
 
-    file << "total: " << result.size() << endl;
 
-    for( int i = 0; i < result.size(); i++ )
-        file << result[i]->count << endl;    /* w_ij = exp( - dist(i,j)^2 / sigma^2 ), if j in KNN of i;
-     *      = 0, otherwise.
-     */
 
     /*initialCluster( mid_level_feats, allCluster );
 
@@ -204,7 +219,10 @@ void hierachy( vector<feature>& allFeats, Mat& allWeight, vector<cluster*>& allC
             clst = buffer[a].back();
             buffer[a].pop_back();
             if( clst->count < 10 )
+            {
+                delete clst;
                 continue; // abandon cluster with few features
+            }
             /* else if( clst->count < 30 )
                 result.push_back( clst ); // do not split cluster with 15~29 features
             */
@@ -215,9 +233,16 @@ void hierachy( vector<feature>& allFeats, Mat& allWeight, vector<cluster*>& allC
                 clusterNode* ptr = clst->head;
                 while( ptr != NULL )
                 {
-                    split.push_back( new cluster( ptr->feat ) );
+                    cluster* nc = new cluster();
+                    nc->head = ptr;
+                    nc->count = 1;
                     ptr = ptr->next;
+                    nc->head->next = NULL;
+                    split.push_back( nc );
                 }
+                clst->head = NULL;
+                clst->count = 0;
+                delete clst;
                 doCluster( split, 4, allWeight );
                 for( int i = 0; i < split.size(); i++ )
                     buffer[b].push_back( split[i] );
@@ -239,21 +264,24 @@ void midLevelSelect( vector<feature>& all_feats, vector<feature>& mid_level_feat
 {
     /* mid-level: the sum of KNN-dist local in the 5 level ( out of 10 )
      */
-    
+
     int numOfFeats = all_feats.size();
     double* sum = new double[ numOfFeats ];
     double* dist = new double[ numOfFeats ];
 
     for( int i = 0; i < numOfFeats; i++ )
     {
-        sum[i] = 0.0;
+        double tsum=0.0;
+#pragma omp parallel for
         for( int j = 0; j < numOfFeats; j++ )
             dist[j] = getEuclidDistSquare( all_feats[i], all_feats[j] );
         sort( dist, dist + numOfFeats );
-        for( int i = 0; j < (int)(0.3*numOfFeats); j++ )
-            sum[i] += dist[j];
+#pragma omp parallel for reduction(+:tsum)
+        for( int j = 0; j < (int)(0.3*numOfFeats); j++ )
+            tsum += dist[j];
+        sum[i]=tsum;
     }
-    
+
     /*
     int numOfFeats = all_feats.size();
     Mat allDist( numOfFeats, numOfFeats, CV_64FC1 );
@@ -286,7 +314,7 @@ void midLevelSelect( vector<feature>& all_feats, vector<feature>& mid_level_feat
 
     // selecet mid-level features
     double step = ( max - min ) / 10;
-    double lower = min + level*step, upper = lower + step+step;//+step*2
+    double lower = min + level*step, upper = lower + step;//+step*2
     int cnt = 0;
     for( int j = 0; j < numOfFeats; j++ )
         if( sum[j] >= lower && sum[j] <= upper )
@@ -296,7 +324,8 @@ void midLevelSelect( vector<feature>& all_feats, vector<feature>& mid_level_feat
             cnt++;
         }
     file << "-cnt = " << cnt << "----" << endl;
-
+    delete [] sum;
+    delete [] dist;
 
 
 }
@@ -316,9 +345,9 @@ void doCluster( vector<cluster*>& allCluster, int k, Mat& w )
      */
     for( int i = 0; i < allCluster.size(); i++ )
     {
+        a = allCluster[i];
         for( int j = i+1; j < allCluster.size(); j++ )
         {
-            a = allCluster[i];
             b = allCluster[j];
             affi = affinity( a, b, w );
             affinityNode n( a, b, affi );
@@ -353,18 +382,16 @@ void doCluster( vector<cluster*>& allCluster, int k, Mat& w )
             }
 
             cluster* c = merge( n.a, n.b );
+
             for( int i = 0; i < allCluster.size(); i++ )
             {
                 cluster* a = allCluster[i];
                 double affi = affinity( a, c, w );
                 affinityNode n( a, c, affi );
                 Q.push( n );
-            }
+            }           
 
             allCluster.push_back(c);
-
-
-
         }
 
 
@@ -410,9 +437,9 @@ void initialCluster( vector<feature>& feats, vector<cluster*>& allCluster )
             allCluster.push_back( newCluster );
         }
     }
-    print( allCluster );
+    // print( allCluster );
 
-
+    delete [] visited;
 }
 
 void BFS( int start, cluster* c, vector<feature>& feats, bool* visited, double* w )
@@ -481,6 +508,7 @@ void calcAllPairDist( double* w, vector<feature>& f, double* s, int k_KNN, vecto
         // file << endl;
 
     }
+    delete [] neighbor;
 }
 
 void calcAllPairDist( double* w, vector<feature>& f, double* s, int k_KNN )
@@ -519,6 +547,7 @@ void calcAllPairDist( double* w, vector<feature>& f, double* s, int k_KNN )
         // file << endl;
 
     }
+    delete [] neighbor;
 }
 
 void calcWeight( double* w, int n, int KNN, double* s )
@@ -565,11 +594,15 @@ cluster* merge( cluster* a, cluster* b )
     if( a->count == 0 )
     {
         c->head = b->head;
+        b->head = NULL;
+        a->head = NULL;
         return c;
     }
     if( b->count == 0 )
     {
         c->head = a->head;
+        b->head = NULL;
+        a->head = NULL;
         return c;
     }
 
@@ -578,6 +611,10 @@ cluster* merge( cluster* a, cluster* b )
             tail = tail->next;
     tail->next = b->head;
     c->head = a->head;
+
+    a->head = NULL;
+    b->head = NULL;
+
     return c;
 }
 
@@ -617,6 +654,8 @@ double affinity( cluster* a, cluster* b, Mat& w )
     Mat m2 = ones_b.t() * Wba * Wab * ones_b;
 
     // return 0.0;
+    delete []lista;
+    delete []listb;
     return ( m1.at<double>(0,0) + m2.at<double>(0,0) )/ ((Na+Nb)*(Na+Nb));
 
 }
@@ -634,7 +673,7 @@ void printMbyN( double* mat, int m, int n )
 
 /*void test()
 {
-    ifstream file("//home//yyli//桌面//cluster//R15");
+    ifstream file("//home//yyli//cluster//R15");
     double f1, f2;
     int c;
     int n = 0;
@@ -684,7 +723,6 @@ int main()
     return 0;
 }
 */
-
 
 
 
